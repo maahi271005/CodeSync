@@ -5,10 +5,11 @@ import {
   PlusCircleIcon,
   VideoIcon,
 } from "lucide-react";
-import { UserButton } from "@clerk/clerk-react";
+import { useUser } from "@clerk/clerk-react";
 
 function Navbar() {
   const location = useLocation();
+  const { user } = useUser();
 
   const isActive = (path) => location.pathname === path;
 
@@ -113,9 +114,17 @@ function Navbar() {
           </Link>
 
           {/* USER */}
-          <div className="ml-4 mt-2">
-            <UserButton />
-          </div>
+          <Link
+            to="/profile"
+            title="My profile"
+            className={`ml-4 avatar rounded-full ring-2 ring-offset-2 ring-offset-base-100 transition-all ${
+              location.pathname.startsWith("/profile") ? "ring-primary" : "ring-transparent hover:ring-primary/50"
+            }`}
+          >
+            <div className="size-8 rounded-full">
+              <img src={user?.imageUrl} alt={user?.fullName || "Profile"} />
+            </div>
+          </Link>
         </div>
       </div>
     </nav>

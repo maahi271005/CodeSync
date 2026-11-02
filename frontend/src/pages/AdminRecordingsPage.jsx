@@ -1,23 +1,14 @@
-import { useState, useMemo } from "react";
-import { useUser } from "@clerk/clerk-react";
-import { useAllRecordings } from "../hooks/useRecordings";
+import { useMyRecordings } from "../hooks/useRecordings";
 import Navbar from "../components/navbar";
 import { Loader2Icon, DownloadIcon, VideoIcon, CalendarIcon, UserIcon, AlertCircleIcon } from "lucide-react";
 import { format } from "date-fns";
 import { getDifficultyBadgeClass } from "../util/utils";
 
 function AdminRecordingsPage() {
-  const { user } = useUser();
-  const { data, isLoading, error } = useAllRecordings();
+  const { data, isLoading, error } = useMyRecordings();
 
-  // Filter sessions where current user is the host AND have recordings
-  const userRecordedSessions = useMemo(() => {
-    if (!data || !user) return [];
-
-    return data.sessionsWithRecordings.filter(
-      (session) => session.host?.clerkId === user.id
-    );
-  }, [data, user]);
+  // sessions the current user hosted or joined that have recordings
+  const userRecordedSessions = data?.sessionsWithRecordings ?? [];
 
   const handleDownload = (url, filename) => {
     const link = document.createElement("a");
@@ -36,7 +27,7 @@ function AdminRecordingsPage() {
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <h1 className="text-4xl font-bold text-base-content mb-2">My Session Recordings</h1>
-          <p className="text-base-content/60">View and download recordings from sessions you hosted</p>
+          <p className="text-base-content/60">View and download recordings from sessions you hosted or joined</p>
         </div>
 
         {isLoading ? (
@@ -49,7 +40,7 @@ function AdminRecordingsPage() {
         ) : error ? (
           <div className="alert alert-error">
             <AlertCircleIcon className="w-6 h-6" />
-            <span>Failed to load recordings. You may need admin permissions.</span>
+            <span>Failed to load recordings. Please try again.</span>
           </div>
         ) : (
           <>

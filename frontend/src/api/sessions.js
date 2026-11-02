@@ -36,6 +36,10 @@ export const sessionApi = {
     const response = await axiosInstance.get(`/sessions/${id}/recordings`);
     return response.data;
   },
+  getMyRecordings: async () => {
+    const response = await axiosInstance.get("/sessions/my-recordings");
+    return response.data;
+  },
   getAllRecordings: async () => {
     const response = await axiosInstance.get("/sessions/admin/all-recordings");
     return response.data;
@@ -43,4 +47,5 @@ export const sessionApi = {
 };
 
 export const getSessionRecordings = (id) => sessionApi.getSessionRecordings(id);
+export const getMyRecordings = () => sessionApi.getMyRecordings();
 export const getAllRecordings = () => sessionApi.getAllRecordings();

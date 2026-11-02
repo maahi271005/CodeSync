@@ -7,6 +7,7 @@ import {
   getActiveSessions,
   getAllRecordings,
   getMyRecentSessions,
+  getMyRecordings,
   getSessionById,
   getSessionRecordings,
   joinSession,
@@ -17,6 +18,7 @@ const router = express.Router();
 router.post("/", protectRoute, createSession);
 router.get("/active", protectRoute, getActiveSessions);
 router.get("/my-recent", protectRoute, getMyRecentSessions);
+router.get("/my-recordings", protectRoute, getMyRecordings);
 
 // Admin routes - must be before /:id routes to avoid conflicts
 router.get("/admin/all-recordings", protectRoute, requireControlAdmin, getAllRecordings);

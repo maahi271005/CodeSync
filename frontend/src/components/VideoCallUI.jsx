@@ -1,5 +1,16 @@
 import {CallControls, CallingState, SpeakerLayout, useCallStateHooks, useCall } from "@stream-io/video-react-sdk";
-import { Loader2Icon, MessageSquareIcon, UsersIcon, XIcon, CircleIcon, StopCircleIcon } from "lucide-react";
+import {
+  Loader2Icon,
+  MessageSquareIcon,
+  UsersIcon,
+  XIcon,
+  CircleIcon,
+  StopCircleIcon,
+  UserPlusIcon,
+  LinkIcon,
+  Share2Icon,
+  MailIcon,
+} from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { Channel, Chat, MessageInput, MessageList, Thread, Window } from "stream-chat-react";
@@ -8,12 +19,14 @@ import toast from "react-hot-toast";
 import "@stream-io/video-react-sdk/dist/css/styles.css";
 import "stream-chat-react/dist/css/v2/index.css";
 
-function VideoCallUI({ chatClient, channel }) {
+function VideoCallUI({ chatClient, channel, inviteLink, problemTitle }) {
   const navigate = useNavigate();
   const call = useCall();
-  const { useCallCallingState, useParticipantCount, useIsCallRecordingInProgress } = useCallStateHooks();
+  const { useCallCallingState, useParticipants, useIsCallRecordingInProgress } = useCallStateHooks();
   const callingState = useCallCallingState();
-  const participantCount = useParticipantCount();
+  // count people, not connections - a stale connection from a closed tab shouldn't show up as an extra participant
+  const participants = useParticipants();
+  const participantCount = new Set(participants.map((p) => p.userId)).size;
   const isRecording = useIsCallRecordingInProgress();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isRecordingLoading, setIsRecordingLoading] = useState(false);
@@ -37,6 +50,39 @@ function VideoCallUI({ chatClient, channel }) {
       setIsRecordingLoading(false);
     }
   };
+
+  const inviteText = `Join me on CodeSync to solve "${problemTitle || "a coding problem"}" together`;
+  const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+
+  const closeInviteMenu = () => document.activeElement?.blur();
+
+  const handleCopyInviteLink = async () => {
+    closeInviteMenu();
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      toast.success("Invite link copied");
+    } catch (error) {
+      console.error("Copy error:", error);
+      toast.error("Couldn't copy link");
+    }
+  };
+
+  const handleShareInviteLink = async () => {
+    closeInviteMenu();
+    try {
+      await navigator.share({ title: "CodeSync session", text: inviteText, url: inviteLink });
+    } catch (error) {
+      // user closing the share sheet is not an error
+      if (error?.name !== "AbortError") {
+        console.error("Share error:", error);
+        toast.error("Couldn't share link");
+      }
+    }
+  };
+
+  const emailInviteHref = `mailto:?subject=${encodeURIComponent(
+    "Join my CodeSync session"
+  )}&body=${encodeURIComponent(`${inviteText}:\n\n${inviteLink}`)}`;
 
   if (callingState === CallingState.JOINING) {
     return (
@@ -67,6 +113,44 @@ function VideoCallUI({ chatClient, channel }) {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {inviteLink && (
+              <div className="dropdown dropdown-end">
+                <div
+                  tabIndex={0}
+                  role="button"
+                  className={`btn btn-sm gap-2 ${participantCount <= 1 ? "btn-primary" : "btn-ghost"}`}
+                  title="Invite someone to this session"
+                >
+                  <UserPlusIcon className="size-4" />
+                  Invite
+                </div>
+                <ul
+                  tabIndex={-1}
+                  className="dropdown-content menu bg-base-100 rounded-box z-50 w-52 p-2 shadow-lg border border-base-300"
+                >
+                  <li>
+                    <button onClick={handleCopyInviteLink}>
+                      <LinkIcon className="size-4" />
+                      Copy link
+                    </button>
+                  </li>
+                  {canNativeShare && (
+                    <li>
+                      <button onClick={handleShareInviteLink}>
+                        <Share2Icon className="size-4" />
+                        Share...
+                      </button>
+                    </li>
+                  )}
+                  <li>
+                    <a href={emailInviteHref} onClick={closeInviteMenu}>
+                      <MailIcon className="size-4" />
+                      Send via email
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            )}
             {chatClient && channel && (
               <button
                 onClick={() => setIsChatOpen(!isChatOpen)}
@@ -82,6 +166,15 @@ function VideoCallUI({ chatClient, channel }) {
 
         <div className="flex-1 bg-base-300 rounded-lg overflow-hidden relative">
           <SpeakerLayout />
+          {participantCount <= 1 && inviteLink && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3 bg-base-100/90 backdrop-blur px-4 py-2 rounded-full shadow">
+              <span className="text-sm text-base-content/80">Waiting for someone to join</span>
+              <button onClick={handleCopyInviteLink} className="btn btn-primary btn-xs gap-1">
+                <LinkIcon className="size-3" />
+                Copy invite link
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="bg-base-100 p-3 rounded-lg shadow flex justify-center">

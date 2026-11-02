@@ -19,3 +19,6 @@ export const hasParticipant = (session) => {
   if (typeof p === "object") return Boolean(p._id || p.clerkId || p.id);
   return false;
 };
+// only allow same-site paths so ?redirect= can't send users to another domain
+export const getSafeRedirect = (redirect) =>
+  redirect && redirect.startsWith("/") && !redirect.startsWith("//") ? redirect : null;

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { StreamChat } from "stream-chat";
 import toast from "react-hot-toast";
 import { initializeStreamClient, disconnectStreamClient } from "../util/stream.js";
@@ -11,17 +11,30 @@ function useStreamClient(session, loadingSession, isHost, isParticipant) {
   const [channel, setChannel] = useState(null);
   const [isInitializingCall, setIsInitializingCall] = useState(true);
 
+  // resolves once the previous effect run has fully left the call
+  const cleanupRef = useRef(Promise.resolve());
+
+  // depend on primitives, not the session object - react-query hands us a new object on every
+  // refetch, which used to tear down and re-join the call (showing the same user several times)
+  const callId = session?.callId;
+  const status = session?.status;
+  const canJoin = isHost || isParticipant;
+
   useEffect(() => {
+    if (loadingSession || !callId || !canJoin || status === "completed") return;
+
+    let cancelled = false;
     let videoCall = null;
     let chatClientInstance = null;
 
     const initCall = async () => {
-      if (!session?.callId) return;
-      if (!isHost && !isParticipant) return;
-      if (session.status === "completed") return;
-
       try {
+        // wait for a previous run (StrictMode remount, rejoin) to leave before joining again
+        await cleanupRef.current;
+        if (cancelled) return;
+
         const { token, userId, userName, userImage } = await sessionApi.getStreamToken();
+        if (cancelled) return;
 
         const client = await initializeStreamClient(
           {
@@ -31,11 +44,12 @@ function useStreamClient(session, loadingSession, isHost, isParticipant) {
           },
           token
         );
-
+        if (cancelled) return;
         setStreamClient(client);
 
-        videoCall = client.call("default", session.callId);
+        videoCall = client.call("default", callId);
         await videoCall.join({ create: true });
+        if (cancelled) return;
         setCall(videoCall);
 
         const apiKey = import.meta.env.VITE_STREAM_API_KEY;
@@ -49,35 +63,52 @@ function useStreamClient(session, loadingSession, isHost, isParticipant) {
           },
           token
         );
+        if (cancelled) return;
         setChatClient(chatClientInstance);
 
-        const chatChannel = chatClientInstance.channel("messaging", session.callId);
+        const chatChannel = chatClientInstance.channel("messaging", callId);
         await chatChannel.watch();
+        if (cancelled) return;
         setChannel(chatChannel);
       } catch (error) {
+        if (cancelled) return;
         toast.error("Failed to join video call");
         console.error("Error init call", error);
       } finally {
-        setIsInitializingCall(false);
+        if (!cancelled) setIsInitializingCall(false);
       }
     };
 
-    if (session && !loadingSession) initCall();
+    const initPromise = initCall();
 
-    // cleanup - performance reasons
+    // leave right away on refresh/tab close so we don't linger as a ghost participant
+    const handlePageHide = () => {
+      videoCall?.leave().catch(() => {});
+    };
+    window.addEventListener("pagehide", handlePageHide);
+
     return () => {
-      // iife
-      (async () => {
+      cancelled = true;
+      window.removeEventListener("pagehide", handlePageHide);
+
+      // wait for an in-flight join to finish, then leave it - otherwise a join that
+      // completes after unmount stays in the call
+      cleanupRef.current = initPromise.then(async () => {
         try {
           if (videoCall) await videoCall.leave();
+        } catch (error) {
+          // already left (e.g. via the leave button)
+          console.debug("Call leave skipped:", error?.message);
+        }
+        try {
           if (chatClientInstance) await chatClientInstance.disconnectUser();
           await disconnectStreamClient();
         } catch (error) {
           console.error("Cleanup error:", error);
         }
-      })();
+      });
     };
-  }, [session, loadingSession, isHost, isParticipant]);
+  }, [callId, status, loadingSession, canJoin]);
 
   return {
     streamClient,

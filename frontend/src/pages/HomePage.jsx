@@ -1,8 +1,13 @@
 import { useState } from "react";
 import { Check, Code2, Users, Video, Zap ,ArrowRightIcon} from "lucide-react";
 import {SignInButton} from "@clerk/clerk-react";
+import { useSearchParams } from "react-router";
+import { getSafeRedirect } from "../util/utils.js";
 
 function HomePage() {
+  // invite links send signed-out users here with ?redirect=/session/:id
+  const [searchParams] = useSearchParams();
+  const afterSignInUrl = getSafeRedirect(searchParams.get("redirect")) || undefined;
   const [terminalInput, setTerminalInput] = useState("");
   const [terminalOutput, setTerminalOutput] = useState([
     { type: "text", content: "$ Welcome to CodeSync Terminal" },
@@ -66,7 +71,7 @@ function HomePage() {
           </div>
 
           {/* AUTH BTN */}
-            <SignInButton mode="modal">
+            <SignInButton mode="modal" forceRedirectUrl={afterSignInUrl} signUpForceRedirectUrl={afterSignInUrl}>
                 <button className="group px-6 py-3 bg-gradient-to-r from-primary to-secondary rounded-xl text-white font-semibold text-sm shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 flex items-center gap-2">
                 <span>Get Started</span>
                 <ArrowRightIcon className="size-4 group-hover:translate-x-0.5 transition-transform" />
@@ -109,7 +114,7 @@ function HomePage() {
 
             {/* CTA Buttons */}
             <div className="flex flex-wrap gap-4">
-                <SignInButton mode="modal">
+                <SignInButton mode="modal" forceRedirectUrl={afterSignInUrl} signUpForceRedirectUrl={afterSignInUrl}>
                     <button className="group px-8 py-4 bg-gradient-to-r from-primary to-secondary rounded-xl text-white font-semibold text-0.5xl  shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 flex items-center gap-2">
                     Start Coding Now
                     <ArrowRightIcon className="size-5" />

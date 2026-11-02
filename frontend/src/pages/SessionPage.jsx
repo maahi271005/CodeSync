@@ -405,7 +405,12 @@ function SessionPage() {
                 <div className="h-full">
                   <StreamVideo client={streamClient}>
                     <StreamCall call={call}>
-                      <VideoCallUI chatClient={chatClient} channel={channel} />
+                      <VideoCallUI
+                        chatClient={chatClient}
+                        channel={channel}
+                        inviteLink={`${window.location.origin}/session/${id}`}
+                        problemTitle={session?.problem}
+                      />
                     </StreamCall>
                   </StreamVideo>
                 </div>

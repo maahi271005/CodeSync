@@ -207,61 +207,69 @@ export async function getSessionRecordings(req, res) {
   }
 }
 
+// fetch stream recordings for each completed session matching the filter
+async function getRecordingsForSessions(filter) {
+  const sessions = await Session.find({ ...filter, status: "completed" })
+    .populate("host", "name email clerkId")
+    .populate("participant", "name email clerkId")
+    .sort({ createdAt: -1 });
+
+  const sessionsWithRecordings = await Promise.all(
+    sessions.map(async (session) => {
+      const base = {
+        sessionId: session._id,
+        problem: session.problem,
+        difficulty: session.difficulty,
+        host: session.host,
+        participant: session.participant,
+        createdAt: session.createdAt,
+      };
+
+      try {
+        const call = streamClient.video.call("default", session.callId);
+        const response = await call.listRecordings();
+
+        return {
+          ...base,
+          recordings: response.recordings || [],
+          hasRecordings: response.recordings && response.recordings.length > 0
+        };
+      } catch (error) {
+        console.log(`Error fetching recordings for session ${session._id}:`, error.message);
+        return { ...base, recordings: [], hasRecordings: false, error: "Failed to fetch recordings" };
+      }
+    })
+  );
+
+  // Filter to only sessions with recordings
+  const withRecordings = sessionsWithRecordings.filter(s => s.hasRecordings);
+
+  return {
+    allSessions: sessionsWithRecordings,
+    sessionsWithRecordings: withRecordings,
+    totalSessions: sessionsWithRecordings.length,
+    totalWithRecordings: withRecordings.length
+  };
+}
+
 export async function getAllRecordings(_req, res) {
   try {
     // This endpoint is for admins only - middleware will check
-
-    // Get all completed sessions
-    const sessions = await Session.find({ status: "completed" })
-      .populate("host", "name email clerkId")
-      .populate("participant", "name email clerkId")
-      .sort({ createdAt: -1 });
-
-    // Fetch recordings for each session
-    const sessionsWithRecordings = await Promise.all(
-      sessions.map(async (session) => {
-        try {
-          const call = streamClient.video.call("default", session.callId);
-          const response = await call.listRecordings();
-
-          return {
-            sessionId: session._id,
-            problem: session.problem,
-            difficulty: session.difficulty,
-            host: session.host,
-            participant: session.participant,
-            createdAt: session.createdAt,
-            recordings: response.recordings || [],
-            hasRecordings: response.recordings && response.recordings.length > 0
-          };
-        } catch (error) {
-          console.log(`Error fetching recordings for session ${session._id}:`, error.message);
-          return {
-            sessionId: session._id,
-            problem: session.problem,
-            difficulty: session.difficulty,
-            host: session.host,
-            participant: session.participant,
-            createdAt: session.createdAt,
-            recordings: [],
-            hasRecordings: false,
-            error: "Failed to fetch recordings"
-          };
-        }
-      })
-    );
-
-    // Filter to only sessions with recordings
-    const withRecordings = sessionsWithRecordings.filter(s => s.hasRecordings);
-
-    res.status(200).json({
-      allSessions: sessionsWithRecordings,
-      sessionsWithRecordings: withRecordings,
-      totalSessions: sessionsWithRecordings.length,
-      totalWithRecordings: withRecordings.length
-    });
+    res.status(200).json(await getRecordingsForSessions({}));
   } catch (error) {
     console.log("Error in getAllRecordings controller:", error.message);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+}
+
+export async function getMyRecordings(req, res) {
+  try {
+    const userId = req.user._id;
+
+    // recordings from sessions the user hosted or joined
+    res.status(200).json(await getRecordingsForSessions({ $or: [{ host: userId }, { participant: userId }] }));
+  } catch (error) {
+    console.log("Error in getMyRecordings controller:", error.message);
     res.status(500).json({ message: "Internal Server Error" });
   }
 }
