@@ -36,3 +36,12 @@ export function useCreateProblem() {
     },
   });
 }
+
+/* -----------------------------
+   RUN CODE AGAINST HIDDEN TESTS
+----------------------------- */
+export function useRunProblem() {
+  return useMutation({
+    mutationFn: problemApi.runProblem,
+  });
+}

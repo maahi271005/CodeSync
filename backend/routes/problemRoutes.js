@@ -2,11 +2,11 @@ import express from "express";
 import {
   createProblem,
   getAllProblems,
-  getProblemBySlug
+  getProblemBySlug,
+  runProblem
 } from "../controller/problemController.js";
 
 import { protectRoute } from "../middleware/protectRoute.js";
-import { requireControlAdmin } from "../middleware/requireControlAdmin.js";
 
 const router = express.Router();
 
@@ -15,15 +15,12 @@ const router = express.Router();
 ----------------------- */
 router.get("/", protectRoute, getAllProblems);
 router.get("/:slug", protectRoute, getProblemBySlug);
+router.post("/:slug/run", protectRoute, runProblem);
 
 /* -----------------------
-   ADMIN ONLY
+   CREATE - open to all signed-in users for now
+   (add requireControlAdmin back to restrict to admins)
 ----------------------- */
-router.post(
-  "/",
-  protectRoute,
-  requireControlAdmin,
-  createProblem
-);
+router.post("/", protectRoute, createProblem);
 
 export default router;

@@ -1,9 +1,14 @@
 import mongoose from "mongoose";
 
 const sessionSchema = new mongoose.Schema({
+    // problem slug
     problem: {
         type: String,
         required: true
+    },
+    problemTitle: {
+        type: String,
+        default: ""
     },
     difficulty: {
         type: String,

@@ -1,6 +1,8 @@
 import { Inngest } from "inngest";
 import { connectDB } from "./db.js";
 import User from "../models/user.js";
+import Session from "../models/Session.js";
+import { finishSession } from "./finishSession.js";
 import { upsertStreamUser,deleteStreamUser } from "./stream.js";
 
 export const inngest = new Inngest({ id: "CodeSync" });
@@ -43,4 +45,24 @@ const deleteUserFromDB = inngest.createFunction(
   }
 );
 
-export const functions = [syncUser, deleteUserFromDB];
+// sessions left open (host closed the tab without "End Session") are ended after this long
+const STALE_SESSION_HOURS = 3;
+
+const endStaleSessions = inngest.createFunction(
+  { id: "end-stale-sessions" },
+  { cron: "0 * * * *" }, // hourly
+  async ({ step }) => {
+    await connectDB();
+
+    const cutoff = new Date(Date.now() - STALE_SESSION_HOURS * 60 * 60 * 1000);
+    const staleSessions = await Session.find({ status: "active", createdAt: { $lt: cutoff } });
+
+    for (const session of staleSessions) {
+      await step.run(`end-session-${session._id}`, () => finishSession(session).then(() => session._id.toString()));
+    }
+
+    return { ended: staleSessions.length };
+  }
+);
+
+export const functions = [syncUser, deleteUserFromDB, endStaleSessions];

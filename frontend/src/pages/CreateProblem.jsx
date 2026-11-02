@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { createElement, useState } from "react";
 import { useCreateProblem } from "../hooks/useProblems";
 import toast from "react-hot-toast";
 import Navbar from "../components/navbar";
@@ -21,9 +21,41 @@ function CreateProblem() {
     testCases: [],
   });
 
+  // JSON fields: parse errors are shown under the field and block submitting
+  const [jsonErrors, setJsonErrors] = useState({});
+  const JSON_DEFAULTS = {
+    parameters: [],
+    returnType: { kind: "primitive", name: "int" },
+    examples: [],
+    testCases: [],
+  };
+
+  const handleJsonChange = (field, value) => {
+    if (!value.trim()) {
+      setProblem((prev) => ({ ...prev, [field]: JSON_DEFAULTS[field] }));
+      setJsonErrors((prev) => ({ ...prev, [field]: null }));
+      return;
+    }
+    try {
+      const parsed = JSON.parse(value);
+      setProblem((prev) => ({ ...prev, [field]: parsed }));
+      setJsonErrors((prev) => ({ ...prev, [field]: null }));
+    } catch (err) {
+      setJsonErrors((prev) => ({ ...prev, [field]: err.message }));
+    }
+  };
+
+  const JsonError = ({ field }) =>
+    jsonErrors[field] ? <p className="text-error text-xs mt-2 px-1">Invalid JSON: {jsonErrors[field]}</p> : null;
+
   const handleSubmit = () => {
     if (!problem.slug || !problem.title || !problem.functionName) {
       toast.error("Required fields: Slug, Title, Function Name");
+      return;
+    }
+    const invalidFields = Object.keys(jsonErrors).filter((field) => jsonErrors[field]);
+    if (invalidFields.length) {
+      toast.error(`Fix the invalid JSON in: ${invalidFields.join(", ")}`);
       return;
     }
     mutate(problem, {
@@ -33,10 +65,10 @@ function CreateProblem() {
   };
 
   // Enhanced Visible Label Component
-  const FieldLabel = ({ icon: Icon, title, sub }) => (
+  const FieldLabel = ({ icon, title, sub }) => (
     <div className="flex items-center gap-2 mb-3 px-1">
       <div className="text-primary bg-primary/10 p-1.5 rounded-md">
-        <Icon size={14} />
+        {createElement(icon, { size: 14 })}
       </div>
       <div className="flex flex-col">
         <span className="text-xs font-black uppercase tracking-widest text-base-content">
@@ -123,17 +155,19 @@ function CreateProblem() {
                 </div>
                 <div>
                   <FieldLabel icon={FiCode} title="Parameters" sub="Input Schema (JSON)" />
-                  <textarea className="w-full bg-base-200 border border-base-300 placeholder:text-base-content/40 rounded-2xl px-5 py-4 h-56 focus:outline-none focus:border-primary/60 font-mono text-[11px] text-base-content/80 leading-relaxed" 
+                  <textarea className={`w-full bg-base-200 border border-base-300 placeholder:text-base-content/40 rounded-2xl px-5 py-4 h-56 focus:outline-none focus:border-primary/60 font-mono text-[11px] text-base-content/80 leading-relaxed ${jsonErrors.parameters ? "border-error!" : ""}`} 
                     placeholder={`Parameters (JSON)\n[\n  {\n    "name": "nums",\n    "type": { "kind": "array", "element": { "kind": "primitive", "name": "int" } }\n  },\n  {\n    "name": "target",\n    "type": { "kind": "primitive", "name": "int" }\n  }\n]`} 
-                    onChange={(e) => { try { setProblem({ ...problem, parameters: JSON.parse(e.target.value) }); } catch {} }} 
+                    onChange={(e) => handleJsonChange("parameters", e.target.value)}
                   />
+                  <JsonError field="parameters" />
                 </div>
                 <div>
                   <FieldLabel icon={FiCode} title="Return Type" sub="Output Schema (JSON)" />
-                  <textarea className="w-full bg-base-200 border border-base-300 placeholder:text-base-content/40 rounded-2xl px-5 py-4 h-28 focus:outline-none focus:border-primary/60 font-mono text-[11px] text-base-content/80" 
+                  <textarea className={`w-full bg-base-200 border border-base-300 placeholder:text-base-content/40 rounded-2xl px-5 py-4 h-28 focus:outline-none focus:border-primary/60 font-mono text-[11px] text-base-content/80 ${jsonErrors.returnType ? "border-error!" : ""}`} 
                     placeholder={`Return type (JSON)\n{ "kind": "primitive", "name": "int" }`} 
-                    onChange={(e) => { try { setProblem({ ...problem, returnType: JSON.parse(e.target.value) }); } catch {} }} 
+                    onChange={(e) => handleJsonChange("returnType", e.target.value)}
                   />
+                  <JsonError field="returnType" />
                 </div>
               </div>
             </section>
@@ -180,17 +214,19 @@ function CreateProblem() {
                 </div>
                 <div>
                   <FieldLabel icon={FiCpu} title="Visible Examples" sub="Problem explanation JSON" />
-                  <textarea className="w-full bg-base-200 border border-base-300 placeholder:text-base-content/40 rounded-2xl px-4 py-4 h-64 focus:outline-none focus:border-primary/60 font-mono text-[10px] text-base-content/80 leading-normal" 
+                  <textarea className={`w-full bg-base-200 border border-base-300 placeholder:text-base-content/40 rounded-2xl px-4 py-4 h-64 focus:outline-none focus:border-primary/60 font-mono text-[10px] text-base-content/80 leading-normal ${jsonErrors.examples ? "border-error!" : ""}`} 
                     placeholder={`Examples (JSON)\n[\n  {\n    "input": "nums = [2,7,11,15], target = 9",\n    "output": "[0,1]",\n    "explanation": "Because nums[0] + nums[1] = 9"\n  }\n]`} 
-                    onChange={(e) => { try { setProblem({ ...problem, examples: JSON.parse(e.target.value) }); } catch {} }} 
+                    onChange={(e) => handleJsonChange("examples", e.target.value)}
                   />
+                  <JsonError field="examples" />
                 </div>
                 <div>
                   <FieldLabel icon={FiCpu} title="Internal Test Cases" sub="Hidden Judge Schema" />
-                  <textarea className="w-full bg-base-200 border-2 border-dashed border-primary/30 focus:border-primary/60 placeholder:text-base-content/40 rounded-2xl px-4 py-4 h-48 focus:outline-none font-mono text-[10px] text-base-content/80" 
+                  <textarea className={`w-full bg-base-200 border-2 border-dashed border-primary/30 focus:border-primary/60 placeholder:text-base-content/40 rounded-2xl px-4 py-4 h-48 focus:outline-none font-mono text-[10px] text-base-content/80 ${jsonErrors.testCases ? "border-error!" : ""}`} 
                     placeholder={`Test cases (JSON)\n[\n  { "input": [[2,7,11,15], 9], "output": [0,1] }\n]`} 
-                    onChange={(e) => { try { setProblem({ ...problem, testCases: JSON.parse(e.target.value) }); } catch {} }} 
+                    onChange={(e) => handleJsonChange("testCases", e.target.value)}
                   />
+                  <JsonError field="testCases" />
                 </div>
               </div>
             </section>

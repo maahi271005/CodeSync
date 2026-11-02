@@ -1,18 +1,16 @@
-import { useUser } from "@clerk/clerk-react";
+import { useAuth, useUser } from "@clerk/clerk-react";
 import { useEffect, useState, useRef } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { io } from "socket.io-client";
 import { useEndSession, useJoinSession, useSessionById } from "../hooks/useSessions.js";
-import { useProblem } from "../hooks/useProblems";
+import { useProblem, useRunProblem } from "../hooks/useProblems";
 import toast from "react-hot-toast";
-import { executeCode } from "../util/piston.js";
 import Navbar from "../components/navbar";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { getDifficultyBadgeClass, hasParticipant } from "../util/utils.js";
-import { Loader2Icon, LogOutIcon, PhoneOffIcon } from "lucide-react";
+import { Loader2Icon, LogOutIcon, PhoneOffIcon, UsersIcon } from "lucide-react";
 import CodeEditorPanel from "../components/CodeEditorPanel";
 import OutputPanel from "../components/OutputPanel";
-import { generateCppJudge } from "../util/judge.js";
 
 import useStreamClient from "../hooks/useStreamClient";
 import { StreamCall, StreamVideo } from "@stream-io/video-react-sdk";
@@ -23,43 +21,63 @@ function SessionPage() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { user } = useUser();
+  const { getToken } = useAuth();
   const [output, setOutput] = useState(null);
-  const [isRunning, setIsRunning] = useState(false);
 
   const { data: sessionData, isLoading: loadingSession, refetch } = useSessionById(id);
 
   const joinSessionMutation = useJoinSession();
   const endSessionMutation = useEndSession();
+  const runProblemMutation = useRunProblem();
+  const isRunning = runProblemMutation.isPending;
 
   const session = sessionData?.session;
-  const {
-    data: problemData,
-    isLoading: loadingProblem,
-  } = useProblem(session?.problem);
+  const { data: problemData } = useProblem(session?.problem);
   const isHost = session?.host?.clerkId === user?.id;
   const isParticipant = Array.isArray(session?.participant)
     ? session.participant.some((p) => p?.clerkId === user?.id || p === user?.id)
     : session?.participant?.clerkId === user?.id || session?.participant === user?.id;
+  const isMember = isHost || isParticipant;
+
+  const [selectedLanguage, setSelectedLanguage] = useState("cpp");
+  const [code, setCode] = useState("");
+  const [isSessionFull, setIsSessionFull] = useState(false);
 
   const [socket, setSocket] = useState(null);
-  const isRemoteUpdate = useRef(false);
+  // set once we receive the partner's code, so the starter code doesn't overwrite it
+  const hasSharedCode = useRef(false);
+  const problemRef = useRef(problemData);
+  problemRef.current = problemData;
+  const joinAttempted = useRef(false);
 
   useEffect(() => {
     const baseUrl = import.meta.env.VITE_API_URL;
     const socketUrl = baseUrl.endsWith("/api") ? baseUrl.slice(0, -4) : baseUrl;
-    const socketInstance = io(socketUrl);
+    // the server only accepts signed-in users; the token is re-fetched on every (re)connect
+    const socketInstance = io(socketUrl, {
+      withCredentials: true,
+      auth: (cb) => getToken().then((token) => cb({ token })),
+    });
     setSocket(socketInstance);
 
     return () => {
       socketInstance.disconnect();
     };
-  }, []);
+  }, [getToken]);
 
+  // join the room once we're a member (participants only become one after the join request),
+  // and again after any reconnect
   useEffect(() => {
-    if (!socket || !id) return;
+    if (!socket || !id || !isMember) return;
 
-    socket.emit("join-session", id);
-  }, [socket, id]);
+    const joinRoom = () => socket.emit("join-session", id);
+    if (socket.connected) joinRoom();
+    socket.on("connect", joinRoom);
+
+    return () => {
+      socket.off("connect", joinRoom);
+    };
+  }, [socket, id, isMember]);
 
   const handleResetCode = () => {
     const starterCode = problemData?.starterCode?.[selectedLanguage] || "";
@@ -75,18 +93,29 @@ function SessionPage() {
   useEffect(() => {
     if (!socket) return;
 
+    // current code/language when joining late or after a refresh
+    socket.on("session-state", ({ code: sharedCode, language }) => {
+      if (language) setSelectedLanguage(language);
+      if (typeof sharedCode === "string") {
+        hasSharedCode.current = true;
+        setCode(sharedCode);
+      }
+    });
+
+    // monaco doesn't fire onChange for programmatic value updates, so these never echo back
     socket.on("code-update", (sharedCode) => {
-      isRemoteUpdate.current = true;
+      hasSharedCode.current = true;
       setCode(sharedCode);
     });
 
     socket.on("language-update", (lang) => {
-      isRemoteUpdate.current = true;
       setSelectedLanguage(lang);
+      setCode(problemRef.current?.starterCode?.[lang] || "");
+      setOutput(null);
     });
 
-
     return () => {
+      socket.off("session-state");
       socket.off("code-update");
       socket.off("language-update");
     };
@@ -103,21 +132,22 @@ function SessionPage() {
     confetti({ particleCount: 80, spread: 250, origin: { x: 0.8, y: 0.6 } });
   };
 
-  // find the problem data based on session problem title
-
-
-  const [selectedLanguage, setSelectedLanguage] = useState("cpp");
-  const [code, setCode] = useState(problemData?.starterCode?.[selectedLanguage] || "");
-
-  // auto-join session if user is not already a participant and not the host
+  // auto-join session if user is not already a participant and not the host - only once,
+  // since the session is refetched every 5s and a full session shouldn't be retried
   useEffect(() => {
     if (!session || !user || loadingSession) return;
-    if (isHost || isParticipant) return;
+    if (isMember || joinAttempted.current) return;
 
-    joinSessionMutation.mutate(id, { onSuccess: refetch });
+    joinAttempted.current = true;
+    joinSessionMutation.mutate(id, {
+      onSuccess: refetch,
+      onError: (error) => {
+        if (error.response?.status === 409) setIsSessionFull(true);
+      },
+    });
 
     // remove the joinSessionMutation, refetch from dependencies to avoid infinite loop
-  }, [session, user, loadingSession, isHost, isParticipant, id]);
+  }, [session, user, loadingSession, isMember, id]);
 
   // redirect the "participant" when session ends
   useEffect(() => {
@@ -126,20 +156,17 @@ function SessionPage() {
     if (session.status === "completed") navigate("/dashboard");
   }, [session, loadingSession, navigate]);
 
-  // update code when problem loads or changes
+  // load starter code when the problem loads, unless the partner's code already arrived
   useEffect(() => {
-    if (!problemData) return;
+    if (!problemData || hasSharedCode.current) return;
     setCode(problemData.starterCode?.[selectedLanguage] || "");
     setOutput(null);
-  }, [problemData, selectedLanguage]);
-
+    // only on problem load - language changes set their own starter code
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [problemData]);
 
   const handleLanguageChange = (e) => {
     const newLang = e.target.value;
-    if (isRemoteUpdate.current) {
-      isRemoteUpdate.current = false;
-      return;
-    }
     setSelectedLanguage(newLang);
     // use problem-specific starter code
     const starterCode = problemData?.starterCode?.[newLang] || "";
@@ -151,55 +178,32 @@ function SessionPage() {
     });
   };
 
-  const handleRunCode = async () => {
+  // judged on the server against hidden test cases
+  const handleRunCode = () => {
     if (!problemData) return;
 
-    setIsRunning(true);
     setOutput(null);
-
-    try {
-      const finalCode = generateCppJudge(problemData, code);
-      const result = await executeCode(selectedLanguage, finalCode);
-
-      setOutput(result);
-      setIsRunning(false);
-
-      if (!result?.success) {
-        toast.error("Code execution failed");
-        return;
+    runProblemMutation.mutate(
+      { slug: session.problem, code },
+      {
+        onSuccess: (result) => {
+          setOutput(result);
+          if (result.status === "accepted") {
+            triggerConfetti();
+            toast.success("All tests passed!");
+          } else if (result.status === "wrong_answer") {
+            toast.error("Tests failed");
+          } else {
+            toast.error("Code execution failed");
+          }
+        },
+        onError: (error) => {
+          setOutput({ status: "error", error: error.response?.data?.message || "Failed to run code" });
+          toast.error("Execution error");
+        },
       }
-
-      // 1️⃣ Actual output from program
-      const actualResults = result.output
-        .trim()
-        .split("\n")
-        .map((line) => line.trim());
-
-      // 2️⃣ Expected output from DB
-      const expectedResults = problemData.testCases.map((tc) =>
-        String(tc.output).trim()
-      );
-
-      // 3️⃣ Compare
-      const passed =
-        actualResults.length === expectedResults.length &&
-        actualResults.every((res, i) => res === expectedResults[i]);
-
-      // 4️⃣ Show result
-      if (passed) {
-        triggerConfetti();
-        toast.success("All tests passed!");
-        confetti();
-      } else {
-        toast.error("Tests failed");
-      }
-    } catch (err) {
-      setIsRunning(false);
-      toast.error("Execution error");
-      console.log(err);
-    }
+    );
   };
-
 
   const handleEndSession = () => {
     if (confirm("Are you sure you want to end this session? All participants will be notified.")) {
@@ -207,6 +211,30 @@ function SessionPage() {
       endSessionMutation.mutate(id, { onSuccess: () => navigate("/dashboard") });
     }
   };
+
+  if (isSessionFull) {
+    return (
+      <div className="h-screen bg-base-300 flex flex-col">
+        <Navbar />
+        <div className="flex-1 flex items-center justify-center p-4">
+          <div className="card bg-base-100 border-2 border-primary/20 shadow-xl max-w-md">
+            <div className="card-body items-center text-center">
+              <div className="w-20 h-20 bg-warning/10 rounded-full flex items-center justify-center mb-2">
+                <UsersIcon className="w-10 h-10 text-warning" />
+              </div>
+              <h2 className="card-title text-2xl">Session is full</h2>
+              <p className="text-base-content/70">
+                This session already has two people. Ask the host for a new invite, or start your own session.
+              </p>
+              <Link to="/dashboard" className="btn btn-primary mt-2">
+                Back to dashboard
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-base-100 flex flex-col">
@@ -225,7 +253,7 @@ function SessionPage() {
                     <div className="flex items-start justify-between mb-3">
                       <div>
                         <h1 className="text-3xl font-bold text-base-content">
-                          {session?.problem || "Loading..."}
+                          {problemData?.title || session?.problemTitle || session?.problem || "Loading..."}
                         </h1>
                         {problemData?.category && (
                           <p className="text-base-content/60 mt-1">{problemData.category}</p>
@@ -351,11 +379,6 @@ function SessionPage() {
                       isRunning={isRunning}
                       onLanguageChange={handleLanguageChange}
                       onCodeChange={(value) => {
-                        if (isRemoteUpdate.current) {
-                          isRemoteUpdate.current = false;
-                          return;
-                        }
-
                         setCode(value);
                         socket?.emit("code-change", {
                           sessionId: id,
@@ -409,7 +432,7 @@ function SessionPage() {
                         chatClient={chatClient}
                         channel={channel}
                         inviteLink={`${window.location.origin}/session/${id}`}
-                        problemTitle={session?.problem}
+                        problemTitle={problemData?.title || session?.problemTitle || session?.problem}
                       />
                     </StreamCall>
                   </StreamVideo>

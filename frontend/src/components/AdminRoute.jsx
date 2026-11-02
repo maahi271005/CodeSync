@@ -1,30 +1,21 @@
 import { useUser } from "@clerk/clerk-react";
 import { Navigate } from "react-router";
-import { useEffect, useState } from "react";
-import axios from "axios";
+import { useEffect } from "react";
 import toast from "react-hot-toast";
+import { useIsAdmin } from "../hooks/useIsAdmin";
 
 function AdminRoute({ children }) {
   const { isSignedIn, isLoaded } = useUser();
-  const [isAdmin, setIsAdmin] = useState(null);
+  const { isAdmin, isLoading } = useIsAdmin();
+
+  const isDenied = isLoaded && isSignedIn && !isLoading && !isAdmin;
 
   useEffect(() => {
-    if (!isSignedIn) return;
-
-    const checkAdmin = async () => {
-      try {
-        const res = await axios.get("/api/users/me");
-        setIsAdmin(res.data.controlAdmin);
-      } catch (err) {
-        setIsAdmin(false);
-      }
-    };
-
-    checkAdmin();
-  }, [isSignedIn]);
+    if (isDenied) toast.error("You are not authorized. Only admins can do that.");
+  }, [isDenied]);
 
   // Prevent flicker
-  if (!isLoaded || isAdmin === null) {
+  if (!isLoaded || isLoading) {
     return null;
   }
 
@@ -35,7 +26,6 @@ function AdminRoute({ children }) {
 
   // Logged in but NOT admin
   if (!isAdmin) {
-    toast.error("You are not authorized. Only admins can do that.");
     return <Navigate to="/dashboard" replace />;
   }
 

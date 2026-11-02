@@ -1,5 +1,7 @@
 import { chatClient, streamClient } from "../util/stream.js";
 import Session from "../models/Session.js";
+import Problem from "../models/Problem.js";
+import { finishSession } from "../util/finishSession.js";
 
 export async function createSession(req, res) {
   try {
@@ -14,8 +16,12 @@ export async function createSession(req, res) {
     // generate a unique call id for stream video
     const callId = `session_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
+    // store the display title so lists don't have to show the slug
+    const problemDoc = await Problem.findOne({ slug: problem }).select("title");
+    const problemTitle = problemDoc?.title || problem;
+
     // create session in db
-    const session = await Session.create({ problem, difficulty, host: userId, callId });
+    const session = await Session.create({ problem, problemTitle, difficulty, host: userId, callId });
 
     // create stream video call
     await streamClient.video.call("default", callId).getOrCreate({
@@ -110,8 +116,11 @@ export async function joinSession(req, res) {
       return res.status(400).json({ message: "Host cannot join their own session as participant" });
     }
 
+    // rejoining as the existing participant is fine
+    if (session.participant?.equals(userId)) return res.status(200).json({ session });
+
     // check if session is already full - has a participant
-    // if (session.participant) return res.status(409).json({ message: "Session is full" });
+    if (session.participant) return res.status(409).json({ message: "Session is full" });
 
     session.participant = userId;
     await session.save();
@@ -145,17 +154,7 @@ export async function endSession(req, res) {
       return res.status(400).json({ message: "Session is already completed" });
     }
 
-    // End the call to mark it as ended (preserves recordings)
-    // DO NOT use call.delete({ hard: true }) - it will remove all recordings!
-    const call = streamClient.video.call("default", session.callId);
-    await call.end();
-
-    // delete stream chat channel
-    const channel = chatClient.channel("messaging", session.callId);
-    await channel.delete();
-
-    session.status = "completed";
-    await session.save();
+    await finishSession(session);
 
     res.status(200).json({ session, message: "Session ended successfully" });
   } catch (error) {
@@ -194,6 +193,7 @@ export async function getSessionRecordings(req, res) {
       session: {
         id: session._id,
         problem: session.problem,
+        problemTitle: session.problemTitle,
         difficulty: session.difficulty,
         host: session.host,
         participant: session.participant,
@@ -219,6 +219,7 @@ async function getRecordingsForSessions(filter) {
       const base = {
         sessionId: session._id,
         problem: session.problem,
+        problemTitle: session.problemTitle,
         difficulty: session.difficulty,
         host: session.host,
         participant: session.participant,

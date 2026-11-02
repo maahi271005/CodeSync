@@ -424,4 +424,4 @@ This project wouldn't be possible without:
 
 ---
 
-**Built with ❤️ by the Krish, Kavya**
+**Built with ❤️ by Maahi Ratanpara**

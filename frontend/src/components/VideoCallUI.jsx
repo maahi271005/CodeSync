@@ -1,17 +1,16 @@
-import {CallControls, CallingState, SpeakerLayout, useCallStateHooks, useCall } from "@stream-io/video-react-sdk";
+import { CallControls, CallingState, SpeakerLayout, useCallStateHooks } from "@stream-io/video-react-sdk";
 import {
   Loader2Icon,
   MessageSquareIcon,
   UsersIcon,
   XIcon,
   CircleIcon,
-  StopCircleIcon,
   UserPlusIcon,
   LinkIcon,
   Share2Icon,
   MailIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Channel, Chat, MessageInput, MessageList, Thread, Window } from "stream-chat-react";
 import toast from "react-hot-toast";
@@ -21,7 +20,6 @@ import "stream-chat-react/dist/css/v2/index.css";
 
 function VideoCallUI({ chatClient, channel, inviteLink, problemTitle }) {
   const navigate = useNavigate();
-  const call = useCall();
   const { useCallCallingState, useParticipants, useIsCallRecordingInProgress } = useCallStateHooks();
   const callingState = useCallCallingState();
   // count people, not connections - a stale connection from a closed tab shouldn't show up as an extra participant
@@ -29,27 +27,15 @@ function VideoCallUI({ chatClient, channel, inviteLink, problemTitle }) {
   const participantCount = new Set(participants.map((p) => p.userId)).size;
   const isRecording = useIsCallRecordingInProgress();
   const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isRecordingLoading, setIsRecordingLoading] = useState(false);
 
-  const handleToggleRecording = async () => {
-    if (!call) return;
-
-    setIsRecordingLoading(true);
-    try {
-      if (isRecording) {
-        await call.stopRecording();
-        toast.success("Recording stopped. It will be available in ~30 seconds.");
-      } else {
-        await call.startRecording();
-        toast.success("Recording started");
-      }
-    } catch (error) {
-      console.error("Recording error:", error);
-      toast.error(isRecording ? "Failed to stop recording" : "Failed to start recording");
-    } finally {
-      setIsRecordingLoading(false);
+  // recording is started/stopped from the record button in Stream's <CallControls />
+  const wasRecording = useRef(isRecording);
+  useEffect(() => {
+    if (wasRecording.current && !isRecording) {
+      toast.success("Recording stopped. It will be available in ~30 seconds after the session ends.");
     }
-  };
+    wasRecording.current = isRecording;
+  }, [isRecording]);
 
   const inviteText = `Join me on CodeSync to solve "${problemTitle || "a coding problem"}" together`;
   const canNativeShare = typeof navigator !== "undefined" && typeof navigator.share === "function";

@@ -7,9 +7,7 @@ import ProblemDescription from "../components/ProblemDescription";
 import OutputPanel from "../components/OutputPanel";
 import CodeEditorPanel from "../components/CodeEditorPanel";
 
-import { useProblem } from "../hooks/useProblems";
-import { generateCppJudge } from "../util/judge.js";
-import { executeCode } from "../util/piston.js";
+import { useProblem, useRunProblem } from "../hooks/useProblems";
 
 import toast from "react-hot-toast";
 import confetti from "canvas-confetti";
@@ -23,7 +21,8 @@ function ProblemPage() {
   const [selectedLanguage, setSelectedLanguage] = useState("cpp");
   const [code, setCode] = useState("");
   const [output, setOutput] = useState(null);
-  const [isRunning, setIsRunning] = useState(false);
+  const runProblemMutation = useRunProblem();
+  const isRunning = runProblemMutation.isPending;
 
   /* -----------------------------
      Load starter code from DB
@@ -61,44 +60,32 @@ function ProblemPage() {
   };
 
   /* -----------------------------
-     RUN CODE WITH DB TEST CASES
+     RUN CODE AGAINST HIDDEN TEST CASES (judged on the server)
   ----------------------------- */
-  const handleRunCode = async () => {
+  const handleRunCode = () => {
     if (!currentProblem) return;
 
-    setIsRunning(true);
     setOutput(null);
-
-    const finalCode = generateCppJudge(currentProblem, code);
-    const result = await executeCode(selectedLanguage, finalCode);
-
-    setOutput(result);
-    setIsRunning(false);
-
-    if (!result.success) {
-      toast.error("Code execution failed");
-      return;
-    }
-
-    const actualResults = result.output
-      .trim()
-      .split("\n")
-      .map((l) => l.trim());
-
-    const expectedResults = currentProblem.testCases.map((tc) =>
-      JSON.stringify(tc.output)
+    runProblemMutation.mutate(
+      { slug, code },
+      {
+        onSuccess: (result) => {
+          setOutput(result);
+          if (result.status === "accepted") {
+            triggerConfetti();
+            toast.success("All tests passed!");
+          } else if (result.status === "wrong_answer") {
+            toast.error("Tests failed. Check your output.");
+          } else {
+            toast.error("Code execution failed");
+          }
+        },
+        onError: (error) => {
+          setOutput({ status: "error", error: error.response?.data?.message || "Failed to run code" });
+          toast.error("Code execution failed");
+        },
+      }
     );
-
-    const passed = actualResults.every(
-      (res, i) => res === expectedResults[i]
-    );
-
-    if (passed) {
-      triggerConfetti();
-      toast.success("All tests passed!");
-    } else {
-      toast.error("Tests failed. Check your output.");
-    }
   };
 
   if (isLoading) {

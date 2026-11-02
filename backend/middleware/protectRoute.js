@@ -1,10 +1,6 @@
 import { requireAuth } from "@clerk/express";
 import User from "../models/user.js";
-
-const ADMIN_EMAILS = [
-  "kavyabhanvadia@gmail.com",
-  "b24cs1037@iitj.ac.in",
-];
+import { ENV } from "../env.js";
 
 export const protectRoute = [
   requireAuth(),
@@ -26,7 +22,7 @@ export const protectRoute = [
          AUTO-ASSIGN ADMIN BY EMAIL
       -------------------------------- */
       if (
-        ADMIN_EMAILS.includes(user.email) &&
+        ENV.ADMIN_EMAILS.includes(user.email?.toLowerCase()) &&
         user.controlAdmin !== true
       ) {
         user.controlAdmin = true;

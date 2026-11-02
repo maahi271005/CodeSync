@@ -74,7 +74,7 @@ function AdminRecordingsPage() {
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
-                            <h2 className="card-title">{session.problem}</h2>
+                            <h2 className="card-title">{session.problemTitle || session.problem}</h2>
                             <span className={`badge ${getDifficultyBadgeClass(session.difficulty)}`}>
                               {session.difficulty}
                             </span>
